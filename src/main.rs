@@ -3,14 +3,14 @@
 mod vglite;
 
 use vglite::*;
-use std::{env::args, fs::{read_to_string, self}, mem::transmute, ffi::c_void, io::Write};
+use std::{env::args, fs::{read_to_string, self}, mem::transmute, ffi::c_void, io::Write, f64::consts::PI};
 use usvg::{
     self,
     Node,
     NodeKind::{Group, Path, Image, Text},
     Paint::{Color, LinearGradient, RadialGradient, Pattern},
     Transform, Visibility,
-    PathSegment::*, NodeExt, Stop
+    PathSegment::*, NodeExt, Stop, Units
 };
 
 struct VGLiteConfig {
@@ -140,7 +140,7 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
             if let Some(fill) = path.fill {
                 // build path
                 let mut path_data = Vec::new();
-                /*
+                /* TODO: specify S32 format
                 for seg in path.data.segments() {
                     match seg {
                         MoveTo { x, y } => {
@@ -213,7 +213,7 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
 
                 // let mut mat2 = mat.clone();
                 // mat2.transform(mat);
-                let mut m = vg_lite_matrix {
+                let mut mr = vg_lite_matrix {
                     m: [[m.a as f32, m.c as f32, m.e as f32],
                         [m.b as f32, m.d as f32, m.f as f32],
                         [0., 0., 1.]
@@ -222,19 +222,17 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
 
                 match fill.paint {
                     Color(color) => {
-                        println!("pure color");
-                        let mut c = fill.opacity.to_u8() as u32;
-                        c <<= 24;
-                        c |= (color.red as u32) << 16;
-                        c |= (color.green as u32) << 8;
-                        c |= (color.blue as u32) << 0;
+                        let c = ((fill.opacity.to_u8() as u32) << 24) |
+                        ((color.red as u32) << 16) |
+                        ((color.green as u32) << 8) |
+                        ((color.blue as u32) << 0);
 
                         // TODO: return error
                         let error = unsafe { vg_lite_draw(
                             config.target,
                             &mut p,
                             config.fill_rule,
-                            &mut m,
+                            &mut mr,
                             config.blend,
                             c
                         ) };
@@ -243,12 +241,11 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
                         }
                     },
                     LinearGradient(lg) => {
-                        println!("linearGradient");
                         if lg.base.stops.len() > 16 {
                             println!("error: linearGradient stops must not bigger than 16");
                             return vg_lite_error_VG_LITE_NOT_SUPPORT;
                         }
-                        // FIXME: handle x1 x2 y1 y2
+
                         // build gradient
                         let mut grad: vg_lite_linear_gradient = unsafe { transmute([0usize;53]) };
                         let mut error = unsafe { vg_lite_init_grad(&mut grad) };
@@ -260,6 +257,7 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
                             x.get_u32()
                         }).collect();
 
+                        // stop is 0 to 255, use matrix to scale
                         let mut stops: Vec<u32> = (&lg.base.stops).into_iter().map(|x| {
                             x.offset.to_u8() as u32
                         }).collect();
@@ -268,19 +266,57 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
                         unsafe {
                             vg_lite_set_grad(
                                 &mut grad,
-                                lg.base.stops.len() as u32,
+                                stops.len() as u32,
                                 colors.as_mut_ptr(),
                                 stops.as_mut_ptr()
                             );
                             vg_lite_update_grad(&mut grad);
                             mat = vg_lite_get_grad_matrix(&mut grad);
-                            vg_lite_identity(mat);
-                            // TODO: do transform
+                        }
+                        // FIXME: handle x1 x2 y1 y2
+                        // Do transform
+                        let mut grad_mat = lg.transform.clone();
+                        let angle = {
+                            if lg.x1 == lg.x2 {
+                                if lg.y2 >= lg.y1 {
+                                    90.
+                                } else {
+                                    -90.
+                                }
+                            } else {
+                                (lg.y2 - lg.y1).atan2(lg.x2 - lg.x1) * 180. / PI
+                            }
+                        };
+                        let s = (lg.x2 - lg.x1) / 255.;
+                        if lg.base.units == Units::UserSpaceOnUse {
+                            // FXIME
+                            grad_mat.translate(lg.x1, lg.y1);
+                            grad_mat.rotate(angle);
+                            grad_mat.scale(s, s);
+                        } else {
+                            // original direction is from (0,0) to (1,0), now we need use x1 x2 y1 y2 to transform
+                            grad_mat.rotate(angle);
+                            let (sx, sy) = m.get_scale();
+                            grad_mat.scale(bbox.width() * sx * s, bbox.height() * sy * s);
+                            grad_mat.translate(lg.x1 / s, lg.y1 / s);
+                        }
+
+                        unsafe {
+                            (*mat).m[0][0] = grad_mat.a as f32;
+                            (*mat).m[0][1] = grad_mat.c as f32;
+                            (*mat).m[0][2] = grad_mat.e as f32;
+                            (*mat).m[1][0] = grad_mat.b as f32;
+                            (*mat).m[1][1] = grad_mat.d as f32;
+                            (*mat).m[1][2] = grad_mat.f as f32;
+                            (*mat).m[2][0] = 0.;
+                            (*mat).m[2][1] = 0.;
+                            (*mat).m[2][2] = 1.;
+
                             error = vg_lite_draw_gradient(
                                 config.target,
                                 &mut p,
                                 vg_lite_fill_VG_LITE_FILL_EVEN_ODD,
-                                &mut m,
+                                &mut mr,
                                 &mut grad,
                                 config.blend
                             );
@@ -318,8 +354,8 @@ trait U32Color {
 impl U32Color for Stop {
     fn get_u32(&self) -> u32 {
         ((self.opacity.to_u8() as u32) << 24) |
-        ((self.color.red as u32) << 16) |
+        ((self.color.red as u32) << 0) |
         ((self.color.green as u32) << 8) |
-        (self.color.blue as u32)
+        ((self.color.blue as u32) << 16)
     }
 }
