@@ -16,13 +16,29 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
-    - name: Setup
+
+    - name: Cache toolchains
+      id: cache-toolchains
+      uses: actions/cache@v3
+      with:
+        path: Xuantie-900-gcc-linux-5.10.4-glibc-x86_64-V2.6.1
+        key: Xuantie-900-gcc-linux-5.10.4-glibc-x86_64-V2.6.1
+
+    - name: Setup toolchains
+      if: steps.cache-toolchains.outputs.cache-hit != 'true'
       run: |
         rustup target add riscv64gc-unknown-linux-gnu
-        curl -fsSL https://occ-oss-prod.oss-cn-hangzhou.aliyuncs.com/resource//1663142514282/Xuantie-900-gcc-linux-5.10.4-glibc-x86_64-V2.6.1-20220906.tar.gz|tar zxvf -
+        curl -fsSL https://occ-oss-prod.oss-cn-hangzhou.aliyuncs.com/resource/1663142514282/Xuantie-900-gcc-linux-5.10.4-glibc-x86_64-V2.6.1-20220906.tar.gz|tar zxvf -
   
     - name: Build
       run: |
         cargo build --target riscv64gc-unknown-linux-gnu --config target.riscv64gc-unknown-linux-gnu.linker=\"./Xuantie-900-gcc-linux-5.10.4-glibc-x86_64-V2.6.1/bin/riscv64-unknown-linux-gnu-gcc\"
+
     - name: Run tests
       run: cargo test --verbose
+
+    - name: Archive lib
+      uses: actions/upload-artifact@v3
+      with:
+        name: libsvglite.so
+        path: target/riscv64gc-unknown-linux-gnu/debug/libsvglite.so
