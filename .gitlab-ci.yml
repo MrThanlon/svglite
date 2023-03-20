@@ -4,18 +4,25 @@ stages:
   - setup
   - build
 
+cache:
+  - key:
+      files:
+        - Cargo.lock
+    paths:
+      - target
+  - paths:
+      - /usr/local/rustup
+  - key:
+      files:
+        - Xuantie-900-gcc-linux-5.10.4-glibc-x86_64-V2.6.1
+    paths:
+      - Xuantie-900-gcc-linux-5.10.4-glibc-x86_64-V2.6.1
+
 setup-toolchains:
   stage: setup
-  cache:
-      - key:
-          files:
-            - Xuantie-900-gcc-linux-5.10.4-glibc-x86_64-V2.6.1
-        paths:
-          - /usr/local/rustup/
-          - Xuantie-900-gcc-linux-5.10.4-glibc-x86_64-V2.6.1
   script:
     - rustup target add riscv64gc-unknown-linux-gnu
-    - curl -fsSL https://occ-oss-prod.oss-cn-hangzhou.aliyuncs.com/resource//1663142514282/Xuantie-900-gcc-linux-5.10.4-glibc-x86_64-V2.6.1-20220906.tar.gz|tar zxvf -
+    - test -d Xuantie-900-gcc-linux-5.10.4-glibc-x86_64-V2.6.1 || (curl -fsSL https://occ-oss-prod.oss-cn-hangzhou.aliyuncs.com/resource//1663142514282/Xuantie-900-gcc-linux-5.10.4-glibc-x86_64-V2.6.1-20220906.tar.gz|tar zxvf -)
 
 build-lib:
   stage: build
