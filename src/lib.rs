@@ -1,16 +1,17 @@
-#![allow(dead_code)]
-// mod vglite;
-mod vglite;
+#![allow(non_upper_case_globals)]
+#![allow(non_camel_case_types)]
+#![allow(non_snake_case)]
 
-use vglite::*;
-use std::{env::args, fs::{read_to_string, self}, mem::transmute, ffi::c_void, io::Write, f64::consts::PI};
+include!("./vg_lite.rs");
+
+use std::{slice, mem::transmute, ffi::c_void, f64::consts::PI};
 use usvg::{
     self,
     Node,
     NodeKind::{Group, Path, Image, Text},
     Paint::{Color, LinearGradient, RadialGradient, Pattern},
     Transform, Visibility,
-    PathSegment::*, NodeExt, Stop, Units
+    PathSegment::*, NodeExt, Stop, Units, Tree
 };
 
 struct VGLiteConfig {
@@ -21,104 +22,57 @@ struct VGLiteConfig {
     quality: vg_lite_quality_t
 }
 
-// FIXME: use RAII
-fn main() {
-    let args: Vec<String> = args().collect();
-    if args.len() != 5 {
-        println!("Usage: {} <width> <height> <Input SVG file> <Output PNG file>", args[0]);
-        return;
+#[repr(C)]
+#[derive(Clone)]
+pub struct svglite_svg {
+    svg: *mut Tree
+}
+
+#[no_mangle]
+extern "C" fn svglite_free(svg: svglite_svg) {
+    if !svg.svg.is_null() {
+        unsafe {Box::from_raw(svg.svg)};
     }
+}
 
-    // vglite
-    let width: i32 = str::parse(args[1].as_str()).expect("error: width is not a valid number");
-    let height: i32 = str::parse(args[2].as_str()).expect("error: height is not a valid number");
-    let mut error = unsafe { vg_lite_init(width, height) };
-    if error != vg_lite_error_VG_LITE_SUCCESS {
-        println!("error: vg_lite_init() failed with code {}", error);
-    }
-    let mut buffer = vg_lite_buffer {
-        width,
-        height,
-        stride: 0,
-        tiled: 0,
-        format: vg_lite_buffer_format_VG_LITE_RGBA8888,
-        handle: unsafe { transmute(0usize) },
-        memory: unsafe { transmute(0usize) },
-        address: 0,
-        yuv: unsafe { transmute([0;18]) },
-        image_mode: 0,
-        transparency_mode: 0,
-        fc_enable: 0,
-        fc_buffer: unsafe { transmute([0;30]) }
-    };
-    error = unsafe { vg_lite_allocate(&mut buffer) };
-    if error != vg_lite_error_VG_LITE_SUCCESS {
-        println!("error: vg_lite_allocate() failed with code {}", error);
-        unsafe { vg_lite_close(); };
-        return;
-    }
-    error = unsafe { vg_lite_clear(&mut buffer, transmute(0usize), 0xffff_ffff) };
-    if error != vg_lite_error_VG_LITE_SUCCESS {
-        println!("error: vg_lite_clear() failed with code {}", error);
-        unsafe {
-            vg_lite_free(&mut buffer);
-            vg_lite_close();
-        };
-        return;
-    }
-
-    // svg
-    if let Ok(svg) = read_to_string(args[3].as_str()) {
-        if let Ok(svg) = usvg::Tree::from_str(svg.as_str(), &usvg::Options::default()) {
-            let mut viewbox_mat = Transform::default();
-            viewbox_mat.scale(width as f64 / svg.view_box.rect.width(), height as f64 / svg.view_box.rect.height());
-            viewbox_mat.translate(-svg.view_box.rect.left(), -svg.view_box.rect.top());
-
-            // dfs
-            error = dfs(&svg.root, &viewbox_mat, &VGLiteConfig {
-                target: &mut buffer,
-                fill_rule: vg_lite_fill_VG_LITE_FILL_NON_ZERO,
-                blend: vg_lite_blend_VG_LITE_BLEND_NONE,
-                quality: vg_lite_quality_VG_LITE_HIGH
-            });
-            if error != vg_lite_error_VG_LITE_SUCCESS {
-                println!("error: dfs() failed with code {}", error);
-                unsafe {
-                    vg_lite_free(&mut buffer);
-                    vg_lite_close();
-                };
-                return;
-            }
-
-            error = unsafe { vg_lite_finish() };
-            if error != vg_lite_error_VG_LITE_SUCCESS {
-                println!("error: vg_lite_finish() failed with code {}", error);
-                unsafe {
-                    vg_lite_free(&mut buffer);
-                    vg_lite_close();
-                };
-                return;
-            }
-            let data = unsafe {
-                std::slice::from_raw_parts(buffer.memory as *const u8, (buffer.stride * buffer.height) as usize)
-            };
-            if let Ok(mut output) = fs::File::create(args[4].as_str()) {
-                if let Err(_) = output.write(data) {
-                    println!("error: write");
-                }
-            } else {
-                println!("error: create output file");
-            }
-        }
-
+#[no_mangle]
+extern "C" fn svglite_svg_from_data(data: *const u8, len: usize) -> svglite_svg {
+    if let Ok(svg) = Tree::from_data(unsafe {slice::from_raw_parts(data, len)}, &usvg::Options::default()) {
+        svglite_svg { svg: Box::into_raw(Box::new(svg)) }
     } else {
-        println!("error: SVG file is not valid");   
+        svglite_svg { svg: std::ptr::null_mut() }
+    }
+}
+
+#[no_mangle]
+extern "C" fn svglite_render(
+    target: &mut vg_lite_buffer,
+    svg: svglite_svg,
+    fill_rule: vg_lite_fill_t,
+    blend: vg_lite_blend_t,
+    quality: vg_lite_quality_t
+) -> vg_lite_error {
+    let svg = unsafe {std::ptr::read(svg.svg)};
+    let mut error = unsafe { vg_lite_clear(target, transmute(0usize), 0x0000_0000) };
+    if error != vg_lite_error_VG_LITE_SUCCESS {
+        // println!("error: vg_lite_clear() failed with code {}", error);
+        return error;
+    }
+    let mut viewbox_mat = Transform::default();
+    viewbox_mat.scale(target.width as f64 / svg.view_box.rect.width(), target.height as f64 / svg.view_box.rect.height());
+    viewbox_mat.translate(-svg.view_box.rect.left(), -svg.view_box.rect.top());
+    error = dfs(&svg.root, &viewbox_mat, &VGLiteConfig {
+        target,
+        fill_rule,
+        blend,
+        quality
+    });
+    if error != vg_lite_error_VG_LITE_SUCCESS {
+        // println!("error: dfs() failed with code {}", error);
+        return error;
     }
 
-    unsafe {
-        vg_lite_free(&mut buffer);
-        vg_lite_close();
-    };
+    unsafe { vg_lite_finish() }
 }
 
 fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
