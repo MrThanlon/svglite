@@ -1,0 +1,21 @@
+image: "rust:1"
+
+setup:
+  cache:
+      - key:
+          files:
+            - Xuantie-900-gcc-linux-5.10.4-glibc-x86_64-V2.6.1
+        paths:
+          - ~/.rustup
+          - Xuantie-900-gcc-linux-5.10.4-glibc-x86_64-V2.6.1
+  script:
+    - rustup target add riscv64gc-unknown-linux-gnu
+    - curl -fsSL https://occ-oss-prod.oss-cn-hangzhou.aliyuncs.com/resource//1663142514282/Xuantie-900-gcc-linux-5.10.4-glibc-x86_64-V2.6.1-20220906.tar.gz|tar zxvf -
+
+build:
+  script:
+    - cargo build --target riscv64gc-unknown-linux-gnu --config target.riscv64gc-unknown-linux-gnu.linker=\"./Xuantie-900-gcc-linux-5.10.4-glibc-x86_64-V2.6.1/bin/riscv64-unknown-linux-gnu-gcc\"
+    - cargo test --workspace --verbose
+  artifacts:
+    paths:
+      - target/riscv64gc-unknown-linux-gnu/debug/libsvglite.so
