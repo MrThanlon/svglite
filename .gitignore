@@ -1,4 +1,6 @@
 /target
-*.svg
 *.so
 .vscode
+build
+.cache
+

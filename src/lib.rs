@@ -4,14 +4,17 @@
 
 include!("./vg_lite.rs");
 
-use std::{slice, mem::transmute, ffi::c_void, f64::consts::PI};
+mod text;
+
+use std::{slice, mem::transmute, ptr::null_mut, ffi::c_void, f64::consts::PI};
 use usvg::{
     self,
     Node,
     NodeKind::{Group, Path, Image, Text},
     Paint::{Color, LinearGradient, RadialGradient, Pattern},
     Transform, Visibility,
-    PathSegment::*, NodeExt, Stop, Units, Tree
+    PathSegment::*, NodeExt, Stop, Units, Tree,
+    ImageKind::*
 };
 
 struct VGLiteConfig {
@@ -83,9 +86,10 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
             for child in node.children() {
                 let e = dfs(&child, &m, config);
                 if e != vg_lite_error_VG_LITE_SUCCESS {
-                    return e;
+                    return e
                 }
             }
+            vg_lite_error_VG_LITE_SUCCESS
         },
         Path(path) => {
             if path.visibility != Visibility::Visible {
@@ -167,12 +171,7 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
 
                 // let mut mat2 = mat.clone();
                 // mat2.transform(mat);
-                let mut mr = vg_lite_matrix {
-                    m: [[m.a as f32, m.c as f32, m.e as f32],
-                        [m.b as f32, m.d as f32, m.f as f32],
-                        [0., 0., 1.]
-                    ]
-                };
+                let mut mr = vg_lite_matrix::from_transform(&m);
 
                 match fill.paint {
                     Color(color) => {
@@ -216,7 +215,7 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
                             x.offset.to_u8() as u32
                         }).collect();
 
-                        let mat: *mut vg_lite_matrix;
+                        let mut mat;
                         unsafe {
                             vg_lite_set_grad(
                                 &mut grad,
@@ -225,9 +224,8 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
                                 stops.as_mut_ptr()
                             );
                             vg_lite_update_grad(&mut grad);
-                            mat = vg_lite_get_grad_matrix(&mut grad);
+                            mat = std::ptr::read(vg_lite_get_grad_matrix(&mut grad));
                         }
-                        // FIXME: handle x1 x2 y1 y2
                         // Do transform
                         let mut grad_mat = lg.transform.clone();
                         let angle = {
@@ -255,17 +253,8 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
                             grad_mat.translate(lg.x1 / s, lg.y1 / s);
                         }
 
+                        mat.update_transform(&grad_mat);
                         unsafe {
-                            (*mat).m[0][0] = grad_mat.a as f32;
-                            (*mat).m[0][1] = grad_mat.c as f32;
-                            (*mat).m[0][2] = grad_mat.e as f32;
-                            (*mat).m[1][0] = grad_mat.b as f32;
-                            (*mat).m[1][1] = grad_mat.d as f32;
-                            (*mat).m[1][2] = grad_mat.f as f32;
-                            (*mat).m[2][0] = 0.;
-                            (*mat).m[2][1] = 0.;
-                            (*mat).m[2][2] = 1.;
-
                             error = vg_lite_draw_gradient(
                                 config.target,
                                 &mut p,
@@ -290,15 +279,75 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
             if let Some(_stroke) = path.stroke {
                 // stroke is not supported
             }
+            vg_lite_error_VG_LITE_SUCCESS
         },
-        Image(_image) => {
+        Image(image) => {
             // TODO
+            if image.visibility != Visibility::Visible {
+                return vg_lite_error_VG_LITE_SUCCESS;
+            }
+            // allocate new buffer to do BLITs
+            let mut buffer = vg_lite_buffer::default(
+                image.view_box.rect.width() as i32,
+                image.view_box.rect.height() as i32,
+                vg_lite_buffer_format_VG_LITE_RGBA8888
+            );
+            let error = unsafe {vg_lite_allocate(&mut buffer)};
+            if error != vg_lite_error_VG_LITE_SUCCESS {
+                return error;
+            }
+            let error = match image.kind {
+                SVG(tree) => {
+                    dfs(&tree.root, &Transform::default(), &VGLiteConfig {
+                        target: &mut buffer,
+                        fill_rule: config.fill_rule,
+                        blend: config.blend,
+                        quality: config.quality
+                    })
+                },
+                JPEG(_jpeg) => {
+                    // TODO
+                    vg_lite_error_VG_LITE_NOT_SUPPORT
+                }
+                PNG(_png) => {
+                    // TODO
+                    vg_lite_error_VG_LITE_NOT_SUPPORT
+                },
+                GIF(_) => vg_lite_error_VG_LITE_NOT_SUPPORT
+            };
+            if error != vg_lite_error_VG_LITE_SUCCESS {
+                return error;
+            }
+            // BLITs
+            m.translate(image.view_box.rect.x(), image.view_box.rect.y());
+            let error = unsafe {
+                vg_lite_blit(
+                    config.target,
+                    &mut buffer,
+                    &mut vg_lite_matrix::from_transform(&m),
+                    vg_lite_blend_VG_LITE_BLEND_NONE,
+                    0,
+                    vg_lite_filter_VG_LITE_FILTER_BI_LINEAR
+                )
+            };
+            if error != vg_lite_error_VG_LITE_SUCCESS {
+                return error;
+            }
+            let error = unsafe {
+                vg_lite_finish()
+            };
+            if error != vg_lite_error_VG_LITE_SUCCESS {
+                return error;
+            }
+            unsafe {
+                vg_lite_free(&mut buffer)
+            }
         },
         Text(_text) => {
             // TODO
+            vg_lite_error_VG_LITE_NOT_SUPPORT
         }
     }
-    return vg_lite_error_VG_LITE_SUCCESS;
 }
 
 trait U32Color {
@@ -311,5 +360,59 @@ impl U32Color for Stop {
         ((self.color.red as u32) << 0) |
         ((self.color.green as u32) << 8) |
         ((self.color.blue as u32) << 16)
+    }
+}
+
+impl vg_lite_buffer {
+    fn default(width: i32, height: i32, format: vg_lite_buffer_format) -> vg_lite_buffer {
+        vg_lite_buffer {
+            width, height, format,
+            stride: 0, tiled: 0,
+            handle: null_mut(),
+            memory: null_mut(),
+            address: 0,
+            yuv: vg_lite_yuvinfo {
+                swizzle: 0,
+                yuv2rgb: 0,
+                uv_planar: 0,
+                v_planar: 0,
+                alpha_planar: 0,
+                uv_stride: 0,
+                v_stride: 0,
+                alpha_stride: 0,
+                uv_height: 0,
+                v_height: 0,
+                uv_memory: null_mut(),
+                v_memory: null_mut(),
+                uv_handle: null_mut(),
+                v_handle: null_mut()
+            },
+            image_mode: 0,transparency_mode: 0,fc_enable: 0,fc_buffer: [vg_lite_fc_buffer {
+                width: 0, height: 0, stride: 0, handle: null_mut(), memory: null_mut(), address: 0,color:0
+            };3]
+        }
+    }
+}
+
+impl vg_lite_matrix {
+    fn from_transform(t: &Transform) -> vg_lite_matrix {
+        vg_lite_matrix {
+            m: [[t.a as f32, t.c as f32, t.e as f32],
+                [t.b as f32, t.d as f32, t.f as f32],
+                [0., 0., 1.]
+            ]
+        }
+    }
+
+    fn update_transform(&mut self, t: &Transform) {
+        self.m[0][0] = t.a as f32;
+        self.m[0][1] = t.c as f32;
+        self.m[0][2] = t.e as f32;
+        self.m[1][0] = t.b as f32;
+        self.m[1][1] = t.d as f32;
+        self.m[1][2] = t.f as f32;
+        self.m[2][0] = 0.;
+        self.m[2][1] = 0.;
+        self.m[2][2] = 1.;
     }
 }

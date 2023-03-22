@@ -155,6 +155,7 @@ dependencies = [
 name = "svglite"
 version = "0.1.0"
 dependencies = [
+ "ttf-parser",
  "usvg",
 ]
 
@@ -167,6 +168,12 @@ dependencies = [
  "kurbo 0.8.3",
  "siphasher",
 ]
+
+[[package]]
+name = "ttf-parser"
+version = "0.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0609f771ad9c6155384897e1df4d948e692667cc0588548b68eb44d052b27633"
 
 [[package]]
 name = "usvg"
