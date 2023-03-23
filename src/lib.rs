@@ -322,6 +322,7 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
             if image.visibility != Visibility::Visible {
                 return vg_lite_error_VG_LITE_SUCCESS;
             }
+            m.translate(image.view_box.rect.x(), image.view_box.rect.y());
             // allocate new buffer to do BLITs
             let mut buffer;
             let error = match image.kind {
@@ -482,7 +483,6 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
                             ColorType::Rgba => {
                                 if reader.output_buffer_size() > (info.width * info.height * 4) as usize {
                                     // imposible
-                                    dbg!(reader.output_buffer_size(), info);
                                     eprintln!("image size error at {}:{}", file!(), line!());
                                     return vg_lite_error_VG_LITE_NOT_SUPPORT;
                                 }
@@ -518,8 +518,6 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
                 return error;
             }
             // BLITs
-            m.translate(image.view_box.rect.x(), image.view_box.rect.y());
-            dbg!(m);
             let error = unsafe {
                 vg_lite_blit(
                     config.target,
