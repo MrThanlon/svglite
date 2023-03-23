@@ -360,7 +360,7 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
                                 jpeg::PixelFormat::L8 => vg_lite_buffer_format_VG_LITE_L8,
                                 jpeg::PixelFormat::L16 => vg_lite_buffer_format_VG_LITE_L8,
                                 jpeg::PixelFormat::CMYK32 => vg_lite_buffer_format_VG_LITE_RGBA8888,
-                                jpeg::PixelFormat::RGB24 => vg_lite_buffer_format_VG_LITE_RGBA8888,
+                                jpeg::PixelFormat::RGB24 => vg_lite_buffer_format_VG_LITE_BGRA8888,
                             }
                         );
                     } else {
@@ -414,6 +414,10 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
                             eprintln!("image bit depth 16 error at {}:{}", file!(), line!());
                             return vg_lite_error_VG_LITE_NOT_SUPPORT;
                         }
+                        m.scale(
+                            image.view_box.rect.width() / info.width as f64,
+                            image.view_box.rect.width() / info.height as f64
+                        );
                         match info.color_type {
                             ColorType::Grayscale => {
                                 if reader.output_buffer_size() > (info.width * info.height) as usize {
@@ -515,6 +519,7 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
             }
             // BLITs
             m.translate(image.view_box.rect.x(), image.view_box.rect.y());
+            dbg!(m);
             let error = unsafe {
                 vg_lite_blit(
                     config.target,

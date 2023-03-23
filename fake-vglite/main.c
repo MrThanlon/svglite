@@ -47,7 +47,7 @@ int main(int argc, char* argv[]) {
     }
     vg_lite_buffer_t target = {
         .width = 240,
-        .height = 80
+        .height = 240
     };
     printf("svglite_render: %d\n", svglite_render(&target, svg, 0, 0, 0));
     return 0;
