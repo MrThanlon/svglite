@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 2.8)
 
-project(test-svglite)
+project(svglite2bin)
 
 set(CMAKE_C_COMPILER riscv64-unknown-linux-gnu-gcc)
 set(CMAKE_CXX_COMPILER riscv64-unknown-linux-gnu-g++)

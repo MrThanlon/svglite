@@ -223,6 +223,7 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
                             c
                         ) };
                         if error != vg_lite_error_VG_LITE_SUCCESS {
+                            eprintln!("error at {}:{}", file!(), line!());
                             return error;
                         }
                     },
@@ -236,6 +237,7 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
                         let mut grad: vg_lite_linear_gradient = unsafe { transmute([0usize;53]) };
                         let mut error = unsafe { vg_lite_init_grad(&mut grad) };
                         if error != vg_lite_error_VG_LITE_SUCCESS {
+                            eprintln!("error at {}:{}", file!(), line!());
                             return error;
                         }
 
@@ -257,7 +259,7 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
                                 stops.as_mut_ptr()
                             );
                             vg_lite_update_grad(&mut grad);
-                            mat = std::ptr::read(vg_lite_get_grad_matrix(&mut grad));
+                            mat = &mut *vg_lite_get_grad_matrix(&mut grad);
                         }
                         // Do transform
                         let mut grad_mat = lg.transform.clone();
@@ -297,6 +299,7 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
                                 config.blend
                             );
                             if error != vg_lite_error_VG_LITE_SUCCESS {
+                                eprintln!("error at {}:{}", file!(), line!());
                                 return error;
                             }
                         };

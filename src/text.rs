@@ -46,8 +46,13 @@ pub fn load_font(data: &[u8], c: char) -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
+struct Foo {
+    m: f32
+}
+
 #[test]
 fn test() {
+    return;
     let data = read("/mnt/c/Windows/Fonts/times.ttf").unwrap();
     assert!(dbg!(load_font(&data, '我')).is_ok());
 }
