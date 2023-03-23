@@ -344,6 +344,10 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
                     let jpeg_reader = VecReader::new(jpeg);
                     let mut decoder = jpeg::Decoder::new(jpeg_reader);
                     let image_info;
+                    if let Err(_) = decoder.read_info() {
+                        eprintln!("read info error at {}:{}", file!(), line!());
+                        return vg_lite_error_VG_LITE_NOT_SUPPORT;
+                    }
                     if let Some(info) = decoder.info() {
                         image_info = info;
                         buffer = vg_lite_buffer::default(
@@ -357,6 +361,7 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
                             }
                         );
                     } else {
+                        eprintln!("read info error at {}:{}", file!(), line!());
                         return vg_lite_error_VG_LITE_NOT_SUPPORT;
                     }
                     let error = unsafe {vg_lite_allocate(&mut buffer)};
@@ -389,6 +394,7 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
                             }
                         }
                     } else {
+                        eprintln!("image decode error at {}:{}", file!(), line!());
                         return vg_lite_error_VG_LITE_NOT_SUPPORT;
                     }
                     m.scale(
@@ -402,12 +408,14 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
                     if let Ok(mut reader) = decoder.read_info() {
                         let info = reader.info();
                         if info.bit_depth == BitDepth::Sixteen {
+                            eprintln!("image bit depth 16 error at {}:{}", file!(), line!());
                             return vg_lite_error_VG_LITE_NOT_SUPPORT;
                         }
                         match info.color_type {
                             ColorType::Grayscale => {
                                 if reader.output_buffer_size() > (info.width * info.height) as usize {
                                     // imposible
+                                    eprintln!("image size error at {}:{}", file!(), line!());
                                     return vg_lite_error_VG_LITE_NOT_SUPPORT;
                                 }
                                 // copy
@@ -425,15 +433,18 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
                                 };
                                 if let Err(_) = reader.next_frame(buffer_memory) {
                                     unsafe {vg_lite_free(&mut buffer)};
+                                    eprintln!("image decode error at {}:{}", file!(), line!());
                                     return vg_lite_error_VG_LITE_NOT_SUPPORT;
                                 }
                             },
                             ColorType::Indexed => {
                                 // TODO: CLUT
+                                eprintln!("image format error at {}:{}", file!(), line!());
                                 return vg_lite_error_VG_LITE_NOT_SUPPORT;
                             },
                             ColorType::GrayscaleAlpha => {
                                 // TODO
+                                eprintln!("image format error at {}:{}", file!(), line!());
                                 return vg_lite_error_VG_LITE_NOT_SUPPORT;
                             },
                             ColorType::Rgb => {
@@ -457,12 +468,15 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
                                     };
                                     convert_rgb24_to_rgb32(&rgb24_buffer, buffer_memory);
                                 } else {
+                                    eprintln!("read output info error at {}:{}", file!(), line!());
                                     return vg_lite_error_VG_LITE_NOT_SUPPORT;
                                 }
                             },
                             ColorType::Rgba => {
-                                if reader.output_buffer_size() > (info.width * info.height) as usize {
+                                if reader.output_buffer_size() > (info.width * info.height * 4) as usize {
                                     // imposible
+                                    dbg!(reader.output_buffer_size(), info);
+                                    eprintln!("image size error at {}:{}", file!(), line!());
                                     return vg_lite_error_VG_LITE_NOT_SUPPORT;
                                 }
                                 // copy
@@ -480,11 +494,13 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
                                 };
                                 if let Err(_) = reader.next_frame(buffer_memory) {
                                     unsafe {vg_lite_free(&mut buffer)};
+                                    eprintln!("image allocate at {}:{}", file!(), line!());
                                     return vg_lite_error_VG_LITE_NOT_SUPPORT;
                                 }
                             }
                         }
                     } else {
+                        eprintln!("image read info error at {}:{}", file!(), line!());
                         return vg_lite_error_VG_LITE_NOT_SUPPORT;
                     }
                     vg_lite_error_VG_LITE_SUCCESS

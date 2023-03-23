@@ -94,6 +94,7 @@ vg_lite_error_t vg_lite_allocate(vg_lite_buffer_t *buffer) {
 vg_lite_error_t vg_lite_blit(vg_lite_buffer_t *target, vg_lite_buffer_t *source, vg_lite_matrix_t *matrix, vg_lite_blend_t blend, vg_lite_color_t color, vg_lite_filter_t filter) {
     static unsigned i = 0;
     char name[20];
+    printf("blit %d:%dx%d@%u\n", i, source->width, source->height, source->format);
     sprintf(name, "out-%d.bin", i);
     FILE* f = fopen(name, "w");
     if (f == NULL) {
