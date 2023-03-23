@@ -6,7 +6,8 @@ include!("./vg_lite.rs");
 
 mod text;
 
-use std::{slice, mem::transmute, ptr::null_mut, ffi::c_void, f64::consts::PI};
+use std::{slice, io::{Read, Result}, mem::transmute, ptr::{null_mut}, ffi::c_void, f64::consts::PI};
+use png::{BitDepth, ColorType};
 use usvg::{
     self,
     Node,
@@ -17,12 +18,44 @@ use usvg::{
     ImageKind::*
 };
 
+extern crate jpeg_decoder as jpeg;
+
 struct VGLiteConfig {
     target: *mut vg_lite_buffer,
     fill_rule: vg_lite_fill_t,
     /// Not used
     blend: vg_lite_blend_t,
     quality: vg_lite_quality_t
+}
+
+struct VecReader<'a> {
+    vec: &'a Vec<u8>,
+    position: usize,
+}
+
+impl<'a> VecReader<'a> {
+    fn new(vec: &'a Vec<u8>) -> VecReader<'a> {
+        VecReader {
+            vec,
+            position: 0,
+        }
+    }
+}
+
+impl<'a> Read for VecReader<'a> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        let available_bytes = self.vec.len() - self.position;
+
+        if available_bytes == 0 {
+            Ok(0)
+        } else {
+            let bytes_to_read = buf.len().min(available_bytes);
+            let end = self.position + bytes_to_read;
+            buf[..bytes_to_read].copy_from_slice(&self.vec[self.position..end]);
+            self.position = end;
+            Ok(bytes_to_read)
+        }
+    }
 }
 
 #[repr(C)]
@@ -287,17 +320,18 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
                 return vg_lite_error_VG_LITE_SUCCESS;
             }
             // allocate new buffer to do BLITs
-            let mut buffer = vg_lite_buffer::default(
-                image.view_box.rect.width() as i32,
-                image.view_box.rect.height() as i32,
-                vg_lite_buffer_format_VG_LITE_RGBA8888
-            );
-            let error = unsafe {vg_lite_allocate(&mut buffer)};
-            if error != vg_lite_error_VG_LITE_SUCCESS {
-                return error;
-            }
+            let mut buffer;
             let error = match image.kind {
                 SVG(tree) => {
+                    buffer = vg_lite_buffer::default(
+                        image.view_box.rect.width() as i32,
+                        image.view_box.rect.height() as i32,
+                        vg_lite_buffer_format_VG_LITE_RGBA8888
+                    );
+                    let error = unsafe {vg_lite_allocate(&mut buffer)};
+                    if error != vg_lite_error_VG_LITE_SUCCESS {
+                        return error;
+                    }
                     dfs(&tree.root, &Transform::default(), &VGLiteConfig {
                         target: &mut buffer,
                         fill_rule: config.fill_rule,
@@ -305,15 +339,157 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
                         quality: config.quality
                     })
                 },
-                JPEG(_jpeg) => {
-                    // TODO
-                    vg_lite_error_VG_LITE_NOT_SUPPORT
+                JPEG(jpeg) => {
+                    let jpeg = jpeg.as_ref();
+                    let jpeg_reader = VecReader::new(jpeg);
+                    let mut decoder = jpeg::Decoder::new(jpeg_reader);
+                    let image_info;
+                    if let Some(info) = decoder.info() {
+                        image_info = info;
+                        buffer = vg_lite_buffer::default(
+                            image_info.width as i32,
+                            image_info.height as i32,
+                            match info.pixel_format {
+                                jpeg::PixelFormat::L8 => vg_lite_buffer_format_VG_LITE_L8,
+                                jpeg::PixelFormat::L16 => vg_lite_buffer_format_VG_LITE_L8,
+                                jpeg::PixelFormat::CMYK32 => vg_lite_buffer_format_VG_LITE_RGBA8888,
+                                jpeg::PixelFormat::RGB24 => vg_lite_buffer_format_VG_LITE_RGBA8888,
+                            }
+                        );
+                    } else {
+                        return vg_lite_error_VG_LITE_NOT_SUPPORT;
+                    }
+                    let error = unsafe {vg_lite_allocate(&mut buffer)};
+                    if error != vg_lite_error_VG_LITE_SUCCESS {
+                        return error;
+                    }
+                    let buffer_memory = unsafe {
+                        slice::from_raw_parts_mut(buffer.memory as *mut u8, (buffer.height * buffer.stride) as usize)
+                    };
+                    if let Ok(image) = decoder.decode() {
+                        match image_info.pixel_format {
+                            jpeg::PixelFormat::L8 => {
+                                // memcpy
+                                buffer_memory.copy_from_slice(&image);
+                            },
+                            jpeg::PixelFormat::L16 => {
+                                // TODO
+                                buffer_memory.fill(0);
+                            },
+                            jpeg::PixelFormat::RGB24 => {
+                                // RGB24 to RGB32
+                                if image.len() * 4 != (buffer.height * buffer.stride) as usize * 3 {
+                                    return vg_lite_error_VG_LITE_INVALID_ARGUMENT;
+                                }
+                                convert_rgb24_to_rgb32(&image, buffer_memory);
+                            },
+                            jpeg::PixelFormat::CMYK32 => {
+                                // TODO
+                                buffer_memory.fill(0);
+                            }
+                        }
+                    } else {
+                        return vg_lite_error_VG_LITE_NOT_SUPPORT;
+                    }
+                    m.scale(
+                        image.view_box.rect.width() / image_info.width as f64,
+                        image.view_box.rect.height() / image_info.height as f64
+                    );
+                    vg_lite_error_VG_LITE_SUCCESS
                 }
-                PNG(_png) => {
-                    // TODO
-                    vg_lite_error_VG_LITE_NOT_SUPPORT
+                PNG(png) => {
+                    let decoder = png::Decoder::new(VecReader::new(png.as_ref()));
+                    if let Ok(mut reader) = decoder.read_info() {
+                        let info = reader.info();
+                        if info.bit_depth == BitDepth::Sixteen {
+                            return vg_lite_error_VG_LITE_NOT_SUPPORT;
+                        }
+                        match info.color_type {
+                            ColorType::Grayscale => {
+                                if reader.output_buffer_size() > (info.width * info.height) as usize {
+                                    // imposible
+                                    return vg_lite_error_VG_LITE_NOT_SUPPORT;
+                                }
+                                // copy
+                                buffer = vg_lite_buffer::default(
+                                    info.width as i32,
+                                    info.height as i32,
+                                    vg_lite_buffer_format_VG_LITE_L8
+                                );
+                                let error = unsafe {vg_lite_allocate(&mut buffer)};
+                                if error != vg_lite_error_VG_LITE_SUCCESS {
+                                    return error;
+                                }
+                                let buffer_memory = unsafe {
+                                    slice::from_raw_parts_mut(buffer.memory as *mut u8, (buffer.height * buffer.stride) as usize)
+                                };
+                                if let Err(_) = reader.next_frame(buffer_memory) {
+                                    unsafe {vg_lite_free(&mut buffer)};
+                                    return vg_lite_error_VG_LITE_NOT_SUPPORT;
+                                }
+                            },
+                            ColorType::Indexed => {
+                                // TODO: CLUT
+                                return vg_lite_error_VG_LITE_NOT_SUPPORT;
+                            },
+                            ColorType::GrayscaleAlpha => {
+                                // TODO
+                                return vg_lite_error_VG_LITE_NOT_SUPPORT;
+                            },
+                            ColorType::Rgb => {
+                                let mut rgb24_buffer = vec![0;reader.output_buffer_size()];
+                                if let Ok(output_info) = reader.next_frame(&mut rgb24_buffer) {
+                                    // convert rgb24 to rgb32
+                                    buffer = vg_lite_buffer::default(
+                                        output_info.width as i32,
+                                        output_info.height as i32,
+                                        vg_lite_buffer_format_VG_LITE_RGBA8888
+                                    );
+                                    let error = unsafe {vg_lite_allocate(&mut buffer)};
+                                    if error != vg_lite_error_VG_LITE_SUCCESS {
+                                        return error;
+                                    }
+                                    let buffer_memory = unsafe {
+                                        slice::from_raw_parts_mut(
+                                            buffer.memory as *mut u8,
+                                            (buffer.height * buffer.stride) as usize
+                                        )
+                                    };
+                                    convert_rgb24_to_rgb32(&rgb24_buffer, buffer_memory);
+                                } else {
+                                    return vg_lite_error_VG_LITE_NOT_SUPPORT;
+                                }
+                            },
+                            ColorType::Rgba => {
+                                if reader.output_buffer_size() > (info.width * info.height) as usize {
+                                    // imposible
+                                    return vg_lite_error_VG_LITE_NOT_SUPPORT;
+                                }
+                                // copy
+                                buffer = vg_lite_buffer::default(
+                                    info.width as i32,
+                                    info.height as i32,
+                                    vg_lite_buffer_format_VG_LITE_RGBA8888
+                                );
+                                let error = unsafe {vg_lite_allocate(&mut buffer)};
+                                if error != vg_lite_error_VG_LITE_SUCCESS {
+                                    return error;
+                                }
+                                let buffer_memory = unsafe {
+                                    slice::from_raw_parts_mut(buffer.memory as *mut u8, (buffer.height * buffer.stride) as usize)
+                                };
+                                if let Err(_) = reader.next_frame(buffer_memory) {
+                                    unsafe {vg_lite_free(&mut buffer)};
+                                    return vg_lite_error_VG_LITE_NOT_SUPPORT;
+                                }
+                            }
+                        }
+                    } else {
+                        return vg_lite_error_VG_LITE_NOT_SUPPORT;
+                    }
+                    vg_lite_error_VG_LITE_SUCCESS
                 },
-                GIF(_) => vg_lite_error_VG_LITE_NOT_SUPPORT
+                GIF(_) => { return vg_lite_error_VG_LITE_NOT_SUPPORT;}
             };
             if error != vg_lite_error_VG_LITE_SUCCESS {
                 return error;
@@ -414,5 +590,17 @@ impl vg_lite_matrix {
         self.m[2][0] = 0.;
         self.m[2][1] = 0.;
         self.m[2][2] = 1.;
+    }
+}
+
+pub fn convert_rgb24_to_rgb32(src: &[u8], dst: &mut [u8]) {
+    let chunks = src.chunks_exact(3);
+    let mut dst_chunks = dst.chunks_exact_mut(4);
+
+    for chunk in chunks {
+        dst_chunks
+            .next()
+            .unwrap()
+            .copy_from_slice(&[chunk[0], chunk[1], chunk[2], 0xFF]);
     }
 }

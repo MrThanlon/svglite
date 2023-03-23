@@ -76,3 +76,36 @@ vg_lite_error_t vg_lite_draw_gradient(vg_lite_buffer_t *target,
                                           vg_lite_matrix_t *matrix,
                                           vg_lite_linear_gradient_t *grad,
                                           vg_lite_blend_t blend) {return 0;}
+vg_lite_error_t vg_lite_free(vg_lite_buffer_t *buffer) {return 0;}
+vg_lite_error_t vg_lite_allocate(vg_lite_buffer_t *buffer) {
+    switch (buffer->format) {
+        case VG_LITE_RGBA8888: buffer->stride = buffer->width * 4; break;
+        case VG_LITE_INDEX_8:
+        case VG_LITE_L8: buffer->stride = buffer->width; break;
+        default: return VG_LITE_NOT_SUPPORT;
+    }
+    buffer->memory = malloc(buffer->height * buffer->stride);
+    if (buffer->memory != NULL) {
+        return VG_LITE_SUCCESS;
+    } else {
+        return VG_LITE_OUT_OF_MEMORY;
+    }
+}
+vg_lite_error_t vg_lite_blit(vg_lite_buffer_t *target, vg_lite_buffer_t *source, vg_lite_matrix_t *matrix, vg_lite_blend_t blend, vg_lite_color_t color, vg_lite_filter_t filter) {
+    static unsigned i = 0;
+    char name[20];
+    sprintf(name, "out-%d.bin", i);
+    FILE* f = fopen(name, "w");
+    if (f == NULL) {
+        perror("open file error");
+        return VG_LITE_GENERIC_IO;
+    }
+    if (fwrite(source->memory, 1, source->stride * source->height, f) < source->stride * source->height) {
+        perror("write file error");
+        fclose(f);
+        return VG_LITE_GENERIC_IO;
+    }
+    fclose(f);
+    i += 1;
+    return VG_LITE_SUCCESS;
+}

@@ -11,6 +11,8 @@ test = true
 [dependencies]
 usvg = "0.29.0"
 ttf-parser = "0.18.1"
+jpeg-decoder = "0.3"
+png = "0.17"
 
 [profile.release]
 opt-level = "z"
