@@ -250,7 +250,7 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
                             x.offset.to_u8() as u32
                         }).collect();
 
-                        let mut mat;
+                        let mat;
                         unsafe {
                             vg_lite_set_grad(
                                 &mut grad,
