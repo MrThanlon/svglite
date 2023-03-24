@@ -26,9 +26,17 @@ void clean(void) {
 int main(int argc, char* argv[]) {
     vg_lite_error_t error;
 
-    if (argc != 5) {
-        printf("Usage: %s <width> <height> <input SVG> <output raw>\n", argv[0]);
+    if (argc < 5) {
+        printf("Usage: %s <width> <height> <input SVG> <output raw> [fonts dir]...\n", argv[0]);
         return -1;
+    }
+    svglite_fontdb_t fonts = NULL;
+    if (argc > 5) {
+        fonts = svglite_fontdb_create();
+        // load font
+        for (unsigned i = 5; i < argc; i++) {
+            svglite_fontdb_load_fonts_dir(fonts, argv[i]);
+        }
     }
     int width = atoi(argv[1]);
     int height = atoi(argv[2]);
@@ -69,7 +77,7 @@ int main(int argc, char* argv[]) {
     f = NULL;
 
     svglite_svg_t svg = svglite_svg_from_data(svg_buffer, file_size);
-    if (svg.svg == NULL) {
+    if (svg == NULL) {
         printf("svglite_svg_from_data() error\n");
         return -1;
     }
@@ -86,7 +94,7 @@ int main(int argc, char* argv[]) {
         printf("vg_lite_allocate() error: %d\n", error);
         return -1;
     }
-    error = svglite_render(&buffer, svg, VG_LITE_FILL_NON_ZERO, VG_LITE_BLEND_NONE, VG_LITE_HIGH);
+    error = svglite_render(&buffer, svg, VG_LITE_FILL_NON_ZERO, VG_LITE_BLEND_NONE, VG_LITE_HIGH, fonts);
     if (error != VG_LITE_SUCCESS) {
         printf("svglite_render() error: %d", error);
         return -1;

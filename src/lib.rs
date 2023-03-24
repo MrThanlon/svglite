@@ -6,7 +6,15 @@ include!("./vg_lite.rs");
 
 mod text;
 
-use std::{slice, io::{Read, Result}, mem::transmute, ptr::{null_mut}, ffi::c_void, f64::consts::PI};
+use std::{
+    slice,
+    io::{Read, Result},
+    mem::transmute,
+    ptr::{null_mut},
+    ffi::{c_void, CStr},
+    f64::consts::PI,
+    os::raw::c_char
+};
 use png::{BitDepth, ColorType};
 use usvg::{
     self,
@@ -17,6 +25,7 @@ use usvg::{
     PathSegment::*, NodeExt, Stop, Units, Tree,
     ImageKind::*
 };
+use usvg_text_layout::*;
 
 extern crate jpeg_decoder as jpeg;
 
@@ -81,14 +90,55 @@ extern "C" fn svglite_svg_from_data(data: *const u8, len: usize) -> svglite_svg 
 }
 
 #[no_mangle]
+extern "C" fn svglite_fontdb_create() -> *mut fontdb::Database {
+    Box::into_raw(Box::new(fontdb::Database::new()))
+}
+
+#[no_mangle]
+extern "C" fn svglite_fontdb_free(db: *mut fontdb::Database) {
+    unsafe { Box::from_raw(db) };
+}
+
+#[no_mangle]
+extern "C" fn svglite_fontdb_load_font_data(db: *mut fontdb::Database, data: *const u8, len: usize) {
+    let db = unsafe {&mut*db};
+    let data = unsafe {
+        slice::from_raw_parts(data, len)
+    };
+    db.load_font_data(Vec::from(data));
+}
+
+#[no_mangle]
+extern "C" fn svglite_fontdb_load_fonts_dir(db: *mut fontdb::Database, dir: *const c_char) {
+    let db = unsafe {&mut*db};
+    let dir = unsafe {
+        CStr::from_ptr(dir)
+    }.to_str().unwrap();
+    db.load_fonts_dir(dir);
+}
+
+#[no_mangle]
+extern "C" fn svglite_fontdb_load_system_fonts(db: *mut fontdb::Database) {
+    let db = unsafe {&mut*db};
+    db.load_system_fonts();
+}
+
+#[no_mangle]
+extern "C" fn svglite_fontdb_len(db: *mut fontdb::Database) -> usize {
+    let db = unsafe {&mut*db};
+    db.len()
+}
+
+#[no_mangle]
 extern "C" fn svglite_render(
     target: &mut vg_lite_buffer,
-    svg: svglite_svg,
+    svg: *mut Tree,
     fill_rule: vg_lite_fill_t,
     blend: vg_lite_blend_t,
-    quality: vg_lite_quality_t
+    quality: vg_lite_quality_t,
+    db: *mut fontdb::Database
 ) -> vg_lite_error {
-    let svg = unsafe {std::ptr::read(svg.svg)};
+    let svg = unsafe {&*svg};
     let mut error = unsafe { vg_lite_clear(target, transmute(0usize), 0x0000_0000) };
     if error != vg_lite_error_VG_LITE_SUCCESS {
         // println!("error: vg_lite_clear() failed with code {}", error);
@@ -101,8 +151,8 @@ extern "C" fn svglite_render(
         target,
         fill_rule,
         blend,
-        quality
-    });
+        quality,
+    }, if !db.is_null() {Some(unsafe{&*db})} else {None});
     if error != vg_lite_error_VG_LITE_SUCCESS {
         // println!("error: dfs() failed with code {}", error);
         return error;
@@ -111,13 +161,13 @@ extern "C" fn svglite_render(
     unsafe { vg_lite_finish() }
 }
 
-fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
+fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig, db: Option<&fontdb::Database>) -> u32 {
     let mut m = mat.clone();
     m.append(&node.transform());
     match node.borrow().to_owned() {
         Group(_group) => {
             for child in node.children() {
-                let e = dfs(&child, &m, config);
+                let e = dfs(&child, &m, config, db);
                 if e != vg_lite_error_VG_LITE_SUCCESS {
                     return e
                 }
@@ -318,7 +368,6 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
             vg_lite_error_VG_LITE_SUCCESS
         },
         Image(image) => {
-            // TODO
             if image.visibility != Visibility::Visible {
                 return vg_lite_error_VG_LITE_SUCCESS;
             }
@@ -341,7 +390,7 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
                         fill_rule: config.fill_rule,
                         blend: config.blend,
                         quality: config.quality
-                    })
+                    }, db)
                 },
                 JPEG(jpeg) => {
                     let jpeg = jpeg.as_ref();
@@ -541,9 +590,17 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig) -> u32 {
                 vg_lite_free(&mut buffer)
             }
         },
-        Text(_text) => {
-            // TODO
-            vg_lite_error_VG_LITE_NOT_SUPPORT
+        Text(text) => {
+            if let Some(db) = db {
+                let paths = text.convert(db, m);
+                if let Some(paths) = paths {
+                    dfs(&paths, &Transform::default(), config, None)
+                } else {
+                    vg_lite_error_VG_LITE_NOT_SUPPORT
+                }
+            } else {
+                vg_lite_error_VG_LITE_SUCCESS
+            }
         }
     }
 }

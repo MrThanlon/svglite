@@ -41,7 +41,7 @@ int main(int argc, char* argv[]) {
         return -1;
     }
     svglite_svg_t svg = svglite_svg_from_data(buffer, file_size);
-    if (svg.svg == NULL) {
+    if (svg == NULL) {
         printf("svg parse error\n");
         return -1;
     }
@@ -49,7 +49,10 @@ int main(int argc, char* argv[]) {
         .width = 240,
         .height = 240
     };
-    printf("svglite_render: %d\n", svglite_render(&target, svg, 0, 0, 0));
+    svglite_fontdb_t db = svglite_fontdb_create();
+    svglite_fontdb_load_fonts_dir(db, "/mnt/c/Windows/Fonts");
+    printf("db: %p, len: %lu\n", db, svglite_fontdb_len(db));
+    printf("svglite_render: %d\n", svglite_render(&target, svg, 0, 0, 0, db));
     return 0;
 }
 
@@ -66,7 +69,7 @@ vg_lite_error_t vg_lite_set_grad(vg_lite_linear_gradient_t *grad,
                                      uint32_t count,
                                      uint32_t *colors,
                                      uint32_t *stops) {return 0;}
-vg_lite_matrix_t * vg_lite_get_grad_matrix(vg_lite_linear_gradient_t *grad) {return NULL;}
+vg_lite_matrix_t * vg_lite_get_grad_matrix(vg_lite_linear_gradient_t *grad) {return &grad->matrix;}
 vg_lite_error_t vg_lite_clear(vg_lite_buffer_t *target,
                                   vg_lite_rectangle_t *rectangle,
                                   vg_lite_color_t color) {return 0;}
