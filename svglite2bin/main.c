@@ -33,9 +33,12 @@ int main(int argc, char* argv[]) {
     svglite_fontdb_t fonts = NULL;
     if (argc > 5) {
         fonts = svglite_fontdb_create();
+        unsigned fonts_count = 0;
         // load font
         for (unsigned i = 5; i < argc; i++) {
             svglite_fontdb_load_fonts_dir(fonts, argv[i]);
+            printf("load %lu fonts from %s\n", svglite_fontdb_len(fonts) - fonts_count, argv[i]);
+            fonts_count = svglite_fontdb_len(fonts);
         }
     }
     int width = atoi(argv[1]);
@@ -92,6 +95,11 @@ int main(int argc, char* argv[]) {
     error = vg_lite_allocate(&buffer);
     if (error != VG_LITE_SUCCESS) {
         printf("vg_lite_allocate() error: %d\n", error);
+        return -1;
+    }
+    error = vg_lite_clear(&buffer, NULL, 0xffffffff);
+    if (error != VG_LITE_SUCCESS) {
+        printf("vg_lite_clear() error: %d", error);
         return -1;
     }
     error = svglite_render(&buffer, svg, VG_LITE_FILL_NON_ZERO, VG_LITE_BLEND_NONE, VG_LITE_HIGH, fonts);

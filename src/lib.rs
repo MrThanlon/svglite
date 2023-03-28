@@ -4,8 +4,6 @@
 
 include!("./vg_lite.rs");
 
-mod text;
-
 use std::{
     slice,
     io::{Read, Result},
@@ -23,7 +21,7 @@ use usvg::{
     Paint::{Color, LinearGradient, RadialGradient, Pattern},
     Transform, Visibility,
     PathSegment::*, NodeExt, Stop, Units, Tree,
-    ImageKind::*
+    ImageKind::*,
 };
 use usvg_text_layout::*;
 
@@ -139,20 +137,20 @@ extern "C" fn svglite_render(
     db: *mut fontdb::Database
 ) -> vg_lite_error {
     let svg = unsafe {&*svg};
-    let mut error = unsafe { vg_lite_clear(target, transmute(0usize), 0x0000_0000) };
-    if error != vg_lite_error_VG_LITE_SUCCESS {
-        // println!("error: vg_lite_clear() failed with code {}", error);
-        return error;
-    }
+    let db = if db.is_null() {
+        None
+    } else {
+        Some(unsafe {&*db})
+    };
     let mut viewbox_mat = Transform::default();
     viewbox_mat.scale(target.width as f64 / svg.view_box.rect.width(), target.height as f64 / svg.view_box.rect.height());
     viewbox_mat.translate(-svg.view_box.rect.left(), -svg.view_box.rect.top());
-    error = dfs(&svg.root, &viewbox_mat, &VGLiteConfig {
+    let error = dfs(&svg.root, &viewbox_mat, &VGLiteConfig {
         target,
         fill_rule,
         blend,
         quality,
-    }, if !db.is_null() {Some(unsafe{&*db})} else {None});
+    }, db);
     if error != vg_lite_error_VG_LITE_SUCCESS {
         // println!("error: dfs() failed with code {}", error);
         return error;
@@ -175,54 +173,26 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig, db: Option<&fontdb::
             vg_lite_error_VG_LITE_SUCCESS
         },
         Path(path) => {
-            if path.visibility != Visibility::Visible {
+            if path.visibility != Visibility::Visible || path.data.is_empty() {
                 return vg_lite_error_VG_LITE_SUCCESS;
             }
             if let Some(fill) = path.fill {
                 // build path
                 let mut path_data = Vec::new();
-                /* TODO: specify S32 format
                 for seg in path.data.segments() {
                     match seg {
                         MoveTo { x, y } => {
-                            path_data.push(2i32);
-                            path_data.push(x.round() as i32);
-                            path_data.push(y.round() as i32);
-                        },
-                        LineTo { x, y } => {
-                            path_data.push(4i32);
-                            path_data.push(x.round() as i32);
-                            path_data.push(y.round() as i32);
-                        },
-                        CurveTo { x1, y1, x2, y2, x, y } => {
-                            path_data.push(8i32);
-                            path_data.push(x1.round() as i32);
-                            path_data.push(y1.round() as i32);
-                            path_data.push(x2.round() as i32);
-                            path_data.push(y2.round() as i32);
-                            path_data.push(x.round() as i32);
-                            path_data.push(y.round() as i32);
-                        },
-                        ClosePath => {
-                            path_data.push(0i32);
-                        }
-                    }
-                }
-                */
-                for seg in path.data.segments() {
-                    match seg {
-                        MoveTo { x, y } => {
-                            path_data.push(unsafe { transmute::<u32, f32>(2) });
+                            path_data.push(unsafe { transmute::<u32, f32>(VLC_OP_MOVE) });
                             path_data.push(x as f32);
                             path_data.push(y as f32);
                         },
                         LineTo { x, y } => {
-                            path_data.push(unsafe { transmute::<u32, f32>(4) });
+                            path_data.push(unsafe { transmute::<u32, f32>(VLC_OP_LINE) });
                             path_data.push(x as f32);
                             path_data.push(y as f32);
                         },
                         CurveTo { x1, y1, x2, y2, x, y } => {
-                            path_data.push(unsafe { transmute::<u32, f32>(8) });
+                            path_data.push(unsafe { transmute::<u32, f32>(VLC_OP_CUBIC) });
                             path_data.push(x1 as f32);
                             path_data.push(y1 as f32);
                             path_data.push(x2 as f32);
@@ -231,11 +201,19 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig, db: Option<&fontdb::
                             path_data.push(y as f32);
                         },
                         ClosePath => {
-                            path_data.push(unsafe { transmute::<u32, f32>(0) });
+                            path_data.push(unsafe { transmute::<u32, f32>(VLC_OP_CLOSE) });
                         }
                     }
                 }
-                let bbox = node.calculate_bbox().unwrap();
+
+                let bbox = if let Some(bbox) = node.calculate_bbox() {
+                    bbox
+                } else {
+                    eprintln!("Warning: path can't read bounding box, ID: {}", path.id);
+                    return vg_lite_error_VG_LITE_SUCCESS;
+                };
+
+                let mut mr = vg_lite_matrix::from_transform(&m);
                 let mut p = vg_lite_path {
                     bounding_box: [
                         bbox.x() as f32,
@@ -252,10 +230,6 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig, db: Option<&fontdb::
                     pdata_internal: 0
                 };
 
-                // let mut mat2 = mat.clone();
-                // mat2.transform(mat);
-                let mut mr = vg_lite_matrix::from_transform(&m);
-
                 match fill.paint {
                     Color(color) => {
                         let c = ((fill.opacity.to_u8() as u32) << 24) |
@@ -263,7 +237,6 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig, db: Option<&fontdb::
                         ((color.green as u32) << 8) |
                         ((color.blue as u32) << 0);
 
-                        // TODO: return error
                         let error = unsafe { vg_lite_draw(
                             config.target,
                             &mut p,
@@ -273,13 +246,13 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig, db: Option<&fontdb::
                             c
                         ) };
                         if error != vg_lite_error_VG_LITE_SUCCESS {
-                            eprintln!("error at {}:{}", file!(), line!());
+                            eprintln!("Error at {}:{}", file!(), line!());
                             return error;
                         }
                     },
                     LinearGradient(lg) => {
                         if lg.base.stops.len() > 16 {
-                            println!("error: linearGradient stops must not bigger than 16");
+                            println!("Error: linearGradient stops must not bigger than 16");
                             return vg_lite_error_VG_LITE_NOT_SUPPORT;
                         }
 
@@ -287,7 +260,7 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig, db: Option<&fontdb::
                         let mut grad: vg_lite_linear_gradient = unsafe { transmute([0usize;53]) };
                         let mut error = unsafe { vg_lite_init_grad(&mut grad) };
                         if error != vg_lite_error_VG_LITE_SUCCESS {
-                            eprintln!("error at {}:{}", file!(), line!());
+                            eprintln!("Error at {}:{}", file!(), line!());
                             return error;
                         }
 
@@ -349,7 +322,7 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig, db: Option<&fontdb::
                                 config.blend
                             );
                             if error != vg_lite_error_VG_LITE_SUCCESS {
-                                eprintln!("error at {}:{}", file!(), line!());
+                                eprintln!("Error {}:{}", file!(), line!());
                                 return error;
                             }
                         };
@@ -592,16 +565,33 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig, db: Option<&fontdb::
         },
         Text(text) => {
             if let Some(db) = db {
-                let paths = text.convert(db, m);
-                if let Some(paths) = paths {
+                if let Some(paths) = text.convert(db, m) {
+                    // dfs_dbg(&paths);
                     dfs(&paths, &Transform::default(), config, None)
                 } else {
+                    eprintln!("Error: <text> rendering error at {}:{}", file!(), line!());
                     vg_lite_error_VG_LITE_NOT_SUPPORT
                 }
             } else {
+                eprintln!("Warning: no suitable font, ignore this <text> element");
                 vg_lite_error_VG_LITE_SUCCESS
             }
         }
+    }
+}
+
+#[allow(unused)]
+fn dfs_dbg(n: &Node) {
+    match n.borrow().to_owned() {
+        Group(_) => {
+            for n in n.children() {
+                dfs_dbg(&n);
+            }
+        },
+        Path(p) => {
+            dbg!(p);
+        },
+        _ => {}
     }
 }
 

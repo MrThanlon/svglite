@@ -118,7 +118,7 @@ pub const VLC_GRADBUFFER_WIDTH: u32 = 256;
 pub const MAX_COLOR_RAMP_STOPS: u32 = 256;
 pub const vgliteDUMP_PATH: &[u8; 3usize] = b"./\0";
 pub const vgliteDUMP_KEY: &[u8; 8usize] = b"process\0";
-pub const DUMP_CAPTURE: u32 = 0;
+pub const DUMP_CAPTURE: u32 = 1;
 pub type wchar_t = ::std::os::raw::c_int;
 #[repr(C)]
 #[repr(align(16))]
