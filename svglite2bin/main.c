@@ -117,5 +117,8 @@ int main(int argc, char* argv[]) {
         perror("fwrite() error");
         return -1;
     }
+    if (fonts != NULL) {
+        svglite_fontdb_free(fonts);
+    }
     return 0;
 }

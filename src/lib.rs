@@ -566,9 +566,9 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig, db: Option<&fontdb::
         },
         Text(text) => {
             if let Some(db) = db {
-                if let Some(paths) = text.convert(db, m) {
+                if let Some(paths) = text.convert(db, Transform::default()) {
                     // dfs_dbg(&paths);
-                    dfs(&paths, &Transform::default(), config, None)
+                    dfs(&paths, &m, config, None)
                 } else {
                     eprintln!("Error: <text> rendering error at {}:{}", file!(), line!());
                     vg_lite_error_VG_LITE_NOT_SUPPORT
