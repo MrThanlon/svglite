@@ -205,6 +205,7 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig, db: Option<&fontdb::
                         }
                     }
                 }
+                path_data.push(unsafe { transmute::<u32, f32>(VLC_OP_END) });
 
                 let bbox = if let Some(bbox) = node.calculate_bbox() {
                     bbox
@@ -284,7 +285,7 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig, db: Option<&fontdb::
                             vg_lite_update_grad(&mut grad);
                             mat = &mut *vg_lite_get_grad_matrix(&mut grad);
                         }
-                        // Do transform
+                        // gradient transform
                         let mut grad_mat = lg.transform.clone();
                         let angle = {
                             if lg.x1 == lg.x2 {
