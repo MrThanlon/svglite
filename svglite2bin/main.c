@@ -1,4 +1,5 @@
 #include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <sys/types.h>
@@ -10,9 +11,12 @@
 unsigned char* svg_buffer = NULL;
 FILE* f = NULL;
 vg_lite_buffer_t buffer;
-vg_lite_buffer_t* fb;
+vg_lite_buffer_t* fb = NULL;
+svglite_fontdb_t fonts = NULL;
 
 void clean(void) {
+    if (fonts != NULL)
+        svglite_fontdb_free(fonts);
     if (svg_buffer != NULL)
         free(svg_buffer);
     if (f != NULL)
@@ -23,6 +27,18 @@ void clean(void) {
     }
 }
 
+// 320x240 VG_LITE_BGRA8888 phy address
+void display_vo_layer0 (uint32_t addr) {
+    const uint32_t base = 0x90840288;
+    const uint32_t end = 0x90840294;
+    // devmem 0x90840000 32 0x12345678
+    char command[40];
+    for (uint32_t reg = base; reg <= end; reg += 4) {
+        sprintf(command, "devmem %08X 32 %08X", reg, addr);
+        system(command);
+    }
+}
+
 int main(int argc, char* argv[]) {
     vg_lite_error_t error;
 
@@ -30,7 +46,6 @@ int main(int argc, char* argv[]) {
         printf("Usage: %s <width> <height> <input SVG> <output raw> [fonts dir]...\n", argv[0]);
         return -1;
     }
-    svglite_fontdb_t fonts = NULL;
     if (argc > 5) {
         fonts = svglite_fontdb_create();
         unsigned fonts_count = 0;
@@ -91,34 +106,41 @@ int main(int argc, char* argv[]) {
         printf("vg_lite_init() error: %d\n", error);
         return -1;
     }
-    vg_lite_buffer_t buffer = {.width=width,.height=height,.format=VG_LITE_RGBA8888};
+    buffer.width = width;
+    buffer.height = height;
+    buffer.format = VG_LITE_BGRA8888;
     error = vg_lite_allocate(&buffer);
     if (error != VG_LITE_SUCCESS) {
         printf("vg_lite_allocate() error: %d\n", error);
         return -1;
     }
-    error = vg_lite_clear(&buffer, NULL, 0xffffffff);
+    fb = &buffer;
+    error = vg_lite_clear(fb, NULL, 0xffffffff);
     if (error != VG_LITE_SUCCESS) {
         printf("vg_lite_clear() error: %d", error);
         return -1;
     }
-    error = svglite_render(&buffer, svg, VG_LITE_FILL_NON_ZERO, VG_LITE_BLEND_NONE, VG_LITE_HIGH, fonts);
+    error = svglite_render(fb, svg, VG_LITE_FILL_NON_ZERO, VG_LITE_BLEND_NONE, VG_LITE_HIGH, fonts);
     if (error != VG_LITE_SUCCESS) {
         printf("svglite_render() error: %d", error);
         return -1;
+    }
+    // FIXME: magic number
+    if (fb->width == 320 && fb->height == 240) {
+        system("devmem 0x90840000 ");
     }
     f = fopen(argv[4], "w");
     if (f == NULL) {
         perror("fopen() error");
         return -1;
     }
-    s = fwrite(buffer.memory, 1, buffer.stride * buffer.height, f);
-    if (s < buffer.stride * buffer.height) {
+    s = fwrite(fb->memory, 1, fb->stride * fb->height, f);
+    if (s < fb->stride * fb->height) {
         perror("fwrite() error");
         return -1;
     }
-    if (fonts != NULL) {
-        svglite_fontdb_free(fonts);
-    }
+    fclose(f);
+    f = NULL;
+    printf("written %lu bytes to %s done\n", s, argv[4]);
     return 0;
 }

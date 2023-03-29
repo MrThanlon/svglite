@@ -285,33 +285,32 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig, db: Option<&fontdb::
                             vg_lite_update_grad(&mut grad);
                             mat = &mut *vg_lite_get_grad_matrix(&mut grad);
                         }
+
                         // gradient transform
-                        let mut grad_mat = lg.transform.clone();
-                        let angle = {
-                            if lg.x1 == lg.x2 {
-                                if lg.y2 >= lg.y1 {
-                                    90.
-                                } else {
-                                    -90.
-                                }
-                            } else {
-                                (lg.y2 - lg.y1).atan2(lg.x2 - lg.x1) * 180. / PI
+                        let mut grad_mat = Transform::default();
+                        let (x1, y1, x2, y2) = (lg.x1, lg.y1, lg.x2, lg.y2);
+                        let len = unsafe {
+                            (*config.target).width as f64
+                        };
+                        grad_mat.prepend(&m);
+                        let angle = (y2 - y1).atan2(x2 - x1) * 180. / PI;
+                        match lg.base.units {
+                            Units::ObjectBoundingBox => {
+                                grad_mat.rotate_at(angle, bbox.x(), bbox.y());
+                                let s = ((bbox.width() * (x2 - x1)).powi(2) + (bbox.height() * (y2 - y1)).powi(2)).sqrt() / 256.;
+                                grad_mat.scale(s, s);
+                            },
+                            Units::UserSpaceOnUse => {
+                                grad_mat.rotate_at(angle, x1, y1);
+                                // dbg!(x1, y1, x2, y2, bbox.x(), bbox.y());
+                                grad_mat.translate(x1, y1);
+                                let s = (x2 - x1) / 256.;
+                                grad_mat.scale(s, s);
                             }
                         };
-                        let s = (lg.x2 - lg.x1) / 255.;
-                        if lg.base.units == Units::UserSpaceOnUse {
-                            // FXIME
-                            grad_mat.translate(lg.x1, lg.y1);
-                            grad_mat.rotate(angle);
-                            grad_mat.scale(s, s);
-                        } else {
-                            // original direction is from (0,0) to (1,0), now we need use x1 x2 y1 y2 to transform
-                            grad_mat.rotate(angle);
-                            let (sx, sy) = m.get_scale();
-                            grad_mat.scale(bbox.width() * sx * s, bbox.height() * sy * s);
-                            grad_mat.translate(lg.x1 / s, lg.y1 / s);
-                        }
 
+                        grad_mat.append(&lg.transform);
+                        // dbg!(grad_mat);
                         mat.update_transform(&grad_mat);
                         unsafe {
                             error = vg_lite_draw_gradient(
@@ -603,9 +602,9 @@ trait U32Color {
 impl U32Color for Stop {
     fn get_u32(&self) -> u32 {
         ((self.opacity.to_u8() as u32) << 24) |
-        ((self.color.red as u32) << 0) |
+        ((self.color.red as u32) << 16) |
         ((self.color.green as u32) << 8) |
-        ((self.color.blue as u32) << 16)
+        ((self.color.blue as u32) << 0)
     }
 }
 
