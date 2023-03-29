@@ -304,7 +304,7 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig, db: Option<&fontdb::
                                 grad_mat.rotate_at(angle, x1, y1);
                                 // dbg!(x1, y1, x2, y2, bbox.x(), bbox.y());
                                 grad_mat.translate(x1, y1);
-                                let s = (x2 - x1) / 256.;
+                                let s = ((x2 - x1).powi(2) + (y2 - y1).powi(2)).sqrt() / 256.;
                                 grad_mat.scale(s, s);
                             }
                         };
