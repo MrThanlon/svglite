@@ -2,13 +2,12 @@
 name = "svglite"
 version = "0.1.0"
 edition = "2021"
-license = "BSD 2-Clause"
 license-file = "LICENSE"
 keywords = ["SVG", "VGLite"]
 readme = "README.md"
 
 [lib]
-crate-type = ["cdylib", "lib"]
+crate-type = ["cdylib"]
 path = "src/lib.rs"
 test = true
 
