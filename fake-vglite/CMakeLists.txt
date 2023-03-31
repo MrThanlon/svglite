@@ -1,10 +1,8 @@
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.0)
 
 project(fake-vglite)
 
 set(CMAKE_BUILD_TYPE Debug)
-set(CMAKE_C_COMPILER clang)
-set(CMAKE_CXX_COMPILER clang++)
 
 include_directories(../include)
 add_executable(${PROJECT_NAME} main.c)
