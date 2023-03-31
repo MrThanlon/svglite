@@ -1,3 +1,28 @@
+/* Copyright (c) 2022, Canaan Bright Sight Co., Ltd
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ * 1. Redistributions of source code must retain the above copyright
+ * notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ * notice, this list of conditions and the following disclaimer in the
+ * documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -34,7 +59,7 @@ void display_vo_layer0 (uint32_t addr) {
     // devmem 0x90840000 32 0x12345678
     char command[40];
     for (uint32_t reg = base; reg <= end; reg += 4) {
-        sprintf(command, "devmem %08X 32 %08X", reg, addr);
+        sprintf(command, "devmem 0x%08X 32 0x%08X", reg, addr);
         system(command);
     }
 }
@@ -125,10 +150,6 @@ int main(int argc, char* argv[]) {
         printf("svglite_render() error: %d", error);
         return -1;
     }
-    // FIXME: magic number
-    if (fb->width == 320 && fb->height == 240) {
-        system("devmem 0x90840000 ");
-    }
     f = fopen(argv[4], "w");
     if (f == NULL) {
         perror("fopen() error");
@@ -142,5 +163,12 @@ int main(int argc, char* argv[]) {
     fclose(f);
     f = NULL;
     printf("written %lu bytes to %s done\n", s, argv[4]);
+    if (fb->width == 320 && fb->height == 240) {
+        printf("write vo layer 0, addr: %08X\n", fb->address);
+        display_vo_layer0(fb->address);
+        for (;;) {
+            sleep(1);
+        }
+    }
     return 0;
 }
