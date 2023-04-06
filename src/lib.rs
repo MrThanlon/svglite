@@ -36,7 +36,7 @@ use std::{
     ptr::{null_mut},
     ffi::{c_void, CStr},
     f64::consts::PI,
-    os::raw::c_char
+    os::raw::c_char, vec
 };
 use png::{BitDepth, ColorType};
 use usvg::{
@@ -45,7 +45,7 @@ use usvg::{
     NodeKind::{Group, Path, Image, Text},
     Paint::{Color, LinearGradient, RadialGradient, Pattern},
     Transform, Visibility,
-    PathSegment::*, NodeExt, Stop, Units, Tree,
+    PathSegment::{*}, NodeExt, Stop, Units, Tree,
     ImageKind::*,
 };
 use usvg_text_layout::*;
@@ -170,7 +170,7 @@ extern "C" fn svglite_render(
     let mut viewbox_mat = Transform::default();
     viewbox_mat.scale(target.width as f64 / svg.view_box.rect.width(), target.height as f64 / svg.view_box.rect.height());
     viewbox_mat.translate(-svg.view_box.rect.left(), -svg.view_box.rect.top());
-    let error = dfs(&svg.root, &viewbox_mat, &VGLiteConfig {
+    let error = dfs(&svg.root, &viewbox_mat, &viewbox_mat, &VGLiteConfig {
         target,
         fill_rule,
         blend,
@@ -184,13 +184,22 @@ extern "C" fn svglite_render(
     unsafe { vg_lite_finish() }
 }
 
-fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig, db: Option<&fontdb::Database>) -> u32 {
+#[allow(unused)]
+fn right_normal(x: f64, y: f64, x0: f64, y0: f64) -> (f64, f64) {
+    let vector = (x - x0, y - y0);
+    // right rotate
+    let normal = (vector.1, -vector.0);
+    let length = (normal.0.powi(2) + normal.1.powi(2)).sqrt();
+    (normal.0 / length, normal.1 / length)
+}
+
+fn dfs(node: &Node, mat: &Transform, viewbox_transform: &Transform, config: &VGLiteConfig, db: Option<&fontdb::Database>) -> u32 {
     let mut m = mat.clone();
     m.append(&node.transform());
     match node.borrow().to_owned() {
         Group(_group) => {
             for child in node.children() {
-                let e = dfs(&child, &m, config, db);
+                let e = dfs(&child, &m, viewbox_transform, config, db);
                 if e != vg_lite_error_VG_LITE_SUCCESS {
                     return e
                 }
@@ -201,6 +210,7 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig, db: Option<&fontdb::
             if path.visibility != Visibility::Visible || path.data.is_empty() {
                 return vg_lite_error_VG_LITE_SUCCESS;
             }
+
             if let Some(fill) = path.fill {
                 // build path
                 let mut path_data = Vec::new();
@@ -314,15 +324,16 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig, db: Option<&fontdb::
                         // gradient transform
                         let mut grad_mat = Transform::default();
                         let (x1, y1, x2, y2) = (lg.x1, lg.y1, lg.x2, lg.y2);
-                        grad_mat.prepend(&m);
                         let angle = (y2 - y1).atan2(x2 - x1) * 180. / PI;
                         match lg.base.units {
                             Units::ObjectBoundingBox => {
+                                grad_mat.prepend(&m);
                                 grad_mat.rotate_at(angle, bbox.x(), bbox.y());
                                 let s = ((bbox.width() * (x2 - x1)).powi(2) + (bbox.height() * (y2 - y1)).powi(2)).sqrt() / 256.;
                                 grad_mat.scale(s, s);
                             },
                             Units::UserSpaceOnUse => {
+                                grad_mat.prepend(viewbox_transform);
                                 grad_mat.rotate_at(angle, x1, y1);
                                 grad_mat.translate(x1, y1);
                                 let s = ((x2 - x1).powi(2) + (y2 - y1).powi(2)).sqrt() / 256.;
@@ -378,7 +389,7 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig, db: Option<&fontdb::
                     if error != vg_lite_error_VG_LITE_SUCCESS {
                         return error;
                     }
-                    dfs(&tree.root, &Transform::default(), &VGLiteConfig {
+                    dfs(&tree.root, &Transform::default(), viewbox_transform, &VGLiteConfig {
                         target: &mut buffer,
                         fill_rule: config.fill_rule,
                         blend: config.blend,
@@ -587,7 +598,7 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig, db: Option<&fontdb::
             if let Some(db) = db {
                 if let Some(paths) = text.convert(db, Transform::default()) {
                     // dfs_dbg(&paths);
-                    dfs(&paths, &m, config, None)
+                    dfs(&paths, &m, viewbox_transform, config, None)
                 } else {
                     eprintln!("Error: <text> rendering error at {}:{}", file!(), line!());
                     vg_lite_error_VG_LITE_NOT_SUPPORT
