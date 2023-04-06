@@ -1,4 +1,4 @@
-image: "rust:1-rsproxy"
+image: "ai.b-bug.org:5000/rust:1-rsproxy"
 
 cache:
   - key:
