@@ -170,7 +170,7 @@ extern "C" fn svglite_render(
     let mut viewbox_mat = Transform::default();
     viewbox_mat.scale(target.width as f64 / svg.view_box.rect.width(), target.height as f64 / svg.view_box.rect.height());
     viewbox_mat.translate(-svg.view_box.rect.left(), -svg.view_box.rect.top());
-    let error = dfs(&svg.root, &viewbox_mat, &viewbox_mat, &VGLiteConfig {
+    let error = dfs(&svg.root, &viewbox_mat, &VGLiteConfig {
         target,
         fill_rule,
         blend,
@@ -193,13 +193,13 @@ fn right_normal(x: f64, y: f64, x0: f64, y0: f64) -> (f64, f64) {
     (normal.0 / length, normal.1 / length)
 }
 
-fn dfs(node: &Node, mat: &Transform, viewbox_transform: &Transform, config: &VGLiteConfig, db: Option<&fontdb::Database>) -> u32 {
+fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig, db: Option<&fontdb::Database>) -> u32 {
     let mut m = mat.clone();
     m.append(&node.transform());
     match node.borrow().to_owned() {
         Group(_group) => {
             for child in node.children() {
-                let e = dfs(&child, &m, viewbox_transform, config, db);
+                let e = dfs(&child, &m, config, db);
                 if e != vg_lite_error_VG_LITE_SUCCESS {
                     return e
                 }
@@ -269,9 +269,9 @@ fn dfs(node: &Node, mat: &Transform, viewbox_transform: &Transform, config: &VGL
                 match fill.paint {
                     Color(color) => {
                         let c = ((fill.opacity.to_u8() as u32) << 24) |
-                        ((color.red as u32) << 16) |
+                        ((color.red as u32) << 0) |
                         ((color.green as u32) << 8) |
-                        ((color.blue as u32) << 0);
+                        ((color.blue as u32) << 16);
 
                         let error = unsafe { vg_lite_draw(
                             config.target,
@@ -325,15 +325,14 @@ fn dfs(node: &Node, mat: &Transform, viewbox_transform: &Transform, config: &VGL
                         let mut grad_mat = Transform::default();
                         let (x1, y1, x2, y2) = (lg.x1, lg.y1, lg.x2, lg.y2);
                         let angle = (y2 - y1).atan2(x2 - x1) * 180. / PI;
+                        grad_mat.prepend(&m);
                         match lg.base.units {
                             Units::ObjectBoundingBox => {
-                                grad_mat.prepend(&m);
                                 grad_mat.rotate_at(angle, bbox.x(), bbox.y());
                                 let s = ((bbox.width() * (x2 - x1)).powi(2) + (bbox.height() * (y2 - y1)).powi(2)).sqrt() / 256.;
                                 grad_mat.scale(s, s);
                             },
                             Units::UserSpaceOnUse => {
-                                grad_mat.prepend(viewbox_transform);
                                 grad_mat.rotate_at(angle, x1, y1);
                                 grad_mat.translate(x1, y1);
                                 let s = ((x2 - x1).powi(2) + (y2 - y1).powi(2)).sqrt() / 256.;
@@ -389,7 +388,7 @@ fn dfs(node: &Node, mat: &Transform, viewbox_transform: &Transform, config: &VGL
                     if error != vg_lite_error_VG_LITE_SUCCESS {
                         return error;
                     }
-                    dfs(&tree.root, &Transform::default(), viewbox_transform, &VGLiteConfig {
+                    dfs(&tree.root, &Transform::default(), &VGLiteConfig {
                         target: &mut buffer,
                         fill_rule: config.fill_rule,
                         blend: config.blend,
@@ -598,7 +597,7 @@ fn dfs(node: &Node, mat: &Transform, viewbox_transform: &Transform, config: &VGL
             if let Some(db) = db {
                 if let Some(paths) = text.convert(db, Transform::default()) {
                     // dfs_dbg(&paths);
-                    dfs(&paths, &m, viewbox_transform, config, None)
+                    dfs(&paths, &m, config, None)
                 } else {
                     eprintln!("Error: <text> rendering error at {}:{}", file!(), line!());
                     vg_lite_error_VG_LITE_NOT_SUPPORT

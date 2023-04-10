@@ -49,8 +49,10 @@ ssize_t read_all(const char* path, unsigned char** buffer) {
     if (fread(*buffer, 1, file_size, f) < file_size) {
         free(*buffer);
         *buffer = NULL;
+        fclose(f);
         return -1;
     }
+    fclose(f);
     return file_size;
 }
 

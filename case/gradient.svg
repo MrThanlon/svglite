@@ -38,6 +38,6 @@
  <rect x="0" y="0" width="100" height="100" fill="url(#g1)"></rect>
  <rect x="0" y="120" width="100" height="100" fill="url(#g2)"></rect>
  <rect x="120" y="0" width="100" height="100" fill="url(#g3)"></rect>
- <rect x="120" y="120" width="100" height="100" fill="url(#g4)"></rect>
+ <rect x="120" y="120" width="100" height="100" transform=" rotate(10) translate(30,-30)" fill="url(#g4)"></rect>
  </g>
 </svg>
