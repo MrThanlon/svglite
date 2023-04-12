@@ -54,8 +54,8 @@ void clean(void) {
 
 // 320x240 VG_LITE_BGRA8888 phy address
 void display_vo_layer0 (uint32_t addr) {
-    const uint32_t base = 0x90840288;
-    const uint32_t end = 0x90840294;
+    const uint32_t base = 0x90840858;
+    const uint32_t end = 0x90840864;
     // devmem 0x90840000 32 0x12345678
     char command[40];
     for (uint32_t reg = base; reg <= end; reg += 4) {
@@ -133,7 +133,7 @@ int main(int argc, char* argv[]) {
     }
     buffer.width = width;
     buffer.height = height;
-    buffer.format = VG_LITE_BGRA8888;
+    buffer.format = VG_LITE_ARGB8888;
     error = vg_lite_allocate(&buffer);
     if (error != VG_LITE_SUCCESS) {
         printf("vg_lite_allocate() error: %d\n", error);

@@ -36,7 +36,8 @@ extern "C" {
 typedef void* svglite_svg_t;
 typedef void* svglite_fontdb_t;
 
-svglite_fontdb_t svglite_fontdb_create();
+const char* svglite_version(void);
+svglite_fontdb_t svglite_fontdb_create(void);
 void svglite_fontdb_free(svglite_fontdb_t db);
 void svglite_fontdb_load_font_data(svglite_fontdb_t db, const unsigned char* data, size_t len);
 void svglite_fontdb_load_fonts_dir(svglite_fontdb_t db, const char* dir);

@@ -52,6 +52,11 @@ use usvg_text_layout::*;
 
 extern crate jpeg_decoder as jpeg;
 
+#[no_mangle]
+extern "C" fn svglite_version() -> *const u8 {
+    env!("CARGO_PKG_VERSION").as_bytes().as_ptr()
+}
+
 struct VGLiteConfig {
     target: *mut vg_lite_buffer,
     fill_rule: vg_lite_fill_t,
@@ -631,6 +636,7 @@ trait U32Color {
 
 impl U32Color for Stop {
     fn get_u32(&self) -> u32 {
+        // FIXME: ???
         ((self.opacity.to_u8() as u32) << 24) |
         ((self.color.red as u32) << 16) |
         ((self.color.green as u32) << 8) |
