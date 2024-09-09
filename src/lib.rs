@@ -30,13 +30,7 @@
 include!("./vg_lite.rs");
 
 use std::{
-    slice,
-    io::{Read, Result},
-    mem::transmute,
-    ptr::{null_mut},
-    ffi::{c_void, CStr},
-    f64::consts::PI,
-    os::raw::c_char, vec
+    f64::consts::PI, ffi::{c_void, CStr}, io::{Read, Result}, mem::transmute, os::raw::c_char, ptr::{null, null_mut}, slice, vec
 };
 use png::{BitDepth, ColorType};
 use usvg::{
@@ -265,10 +259,16 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig, db: Option<&fontdb::
                     quality: config.quality,
                     format: vg_lite_format_VG_LITE_FP32,
                     uploaded: unsafe { transmute::<[u32;8], vg_lite_hw_memory>([0;8]) },
-                    path_length: (path_data.len() * 4) as i32,
+                    path_length: (path_data.len() * 4) as u32,
                     path: path_data.as_mut_ptr() as *mut c_void,
                     path_changed: 1,
-                    pdata_internal: 0
+                    pdata_internal: 0,
+                    path_type: vg_lite_path_type_VG_LITE_DRAW_FILL_PATH,
+                    stroke: null_mut(),
+                    stroke_path: null_mut(),
+                    stroke_size: 0,
+                    stroke_color: 0,
+                    add_end: 0
                 };
 
                 match fill.paint {
@@ -298,7 +298,7 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig, db: Option<&fontdb::
                         }
 
                         // build gradient
-                        let mut grad: vg_lite_linear_gradient = unsafe { transmute([0usize;53]) };
+                        let mut grad: vg_lite_linear_gradient = unsafe { transmute([0usize;54]) };
                         let mut error = unsafe { vg_lite_init_grad(&mut grad) };
                         if error != vg_lite_error_VG_LITE_SUCCESS {
                             eprintln!("Error at {}:{}", file!(), line!());
@@ -348,7 +348,7 @@ fn dfs(node: &Node, mat: &Transform, config: &VGLiteConfig, db: Option<&fontdb::
                         grad_mat.append(&lg.transform);
                         mat.update_transform(&grad_mat);
                         unsafe {
-                            error = vg_lite_draw_gradient(
+                            error = vg_lite_draw_grad(
                                 config.target,
                                 &mut p,
                                 vg_lite_fill_VG_LITE_FILL_EVEN_ODD,
@@ -670,7 +670,9 @@ impl vg_lite_buffer {
             },
             image_mode: 0,transparency_mode: 0,fc_enable: 0,fc_buffer: [vg_lite_fc_buffer {
                 width: 0, height: 0, stride: 0, handle: null_mut(), memory: null_mut(), address: 0,color:0
-            };3]
+            };3],
+            compress_mode: 0,
+            index_endian: 0
         }
     }
 }

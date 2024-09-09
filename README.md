@@ -2,6 +2,10 @@
 
 Rendering SVG with VGLite hardware.
 
+## Compatiable
+
+- VGLite API 3.0
+
 ## Build
 
 ### For K230
